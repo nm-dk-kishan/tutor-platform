@@ -54,8 +54,11 @@ export function AuthProvider({ children }) {
   };
 
   const logout = async () => {
-    // We'll implement the backend logout endpoint next.
-    setUser(null);
+    try {
+      await api.post("/auth/logout");
+    } finally {
+      setUser(null);
+    }
   };
 
   const value = {

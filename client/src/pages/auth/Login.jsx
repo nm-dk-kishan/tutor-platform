@@ -42,7 +42,15 @@ function Login() {
 
       // Temporary redirect.
       // We'll replace this with role-based routing.
-      navigate("/");
+      const dashboardRoutes = {
+      student: "/student",
+      parent: "/parent",
+      tutor: "/tutor",
+      school: "/school",
+      admin: "/admin",
+    };
+
+    navigate(dashboardRoutes[response.user.role] || "/");
     } catch (error) {
       setError(
         error.response?.data?.message ||
