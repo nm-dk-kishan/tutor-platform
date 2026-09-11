@@ -16,6 +16,8 @@ import AdminDashboard from "../pages/admin/AdminDashboard";
 
 import ProtectedRoute from "./ProtectedRoute";
 
+import TutorSearch from "../pages/public/TutorSearch";
+
 function AppRoutes() {
   return (
     <BrowserRouter>
@@ -25,6 +27,7 @@ function AppRoutes() {
         <Route path="/" element={<Home />} />
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
+        <Route path="/tutors" element={<TutorSearch />} />
 
         {/* Student */}
         <Route

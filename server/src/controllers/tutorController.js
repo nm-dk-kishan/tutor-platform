@@ -262,3 +262,119 @@ export const getMyTutorProfile = async (req, res) => {
     });
   }
 };
+
+export const searchTutors = async (req, res) => {
+  try {
+    const {
+      subject,
+      class: className,
+      city,
+      teachingMode,
+      minFee,
+      maxFee,
+      experience,
+    } = req.query;
+
+    const filter = {
+      verificationStatus: "approved",
+    };
+
+    // Subject filter
+    if (subject) {
+      filter.subjects = {
+        $regex: subject.trim(),
+        $options: "i",
+      };
+    }
+
+    // Class filter
+    if (className) {
+      filter.classes = className.trim();
+    }
+
+    // City filter
+    if (city) {
+      filter.city = {
+        $regex: city.trim(),
+        $options: "i",
+      };
+    }
+
+    // Teaching mode filter
+    if (teachingMode) {
+      filter.teachingMode = {
+        $in: [teachingMode, "both"],
+      };
+    }
+
+    // Fee filter
+    if (minFee || maxFee) {
+      filter.hourlyFee = {};
+
+      if (minFee) {
+        filter.hourlyFee.$gte = Number(minFee);
+      }
+
+      if (maxFee) {
+        filter.hourlyFee.$lte = Number(maxFee);
+      }
+    }
+
+    // Experience filter
+    if (experience) {
+      filter.experience = {
+        $gte: Number(experience),
+      };
+    }
+
+    const tutors = await TutorProfile.find(filter)
+      .populate("user", "name email phone")
+      .sort({ experience: -1 });
+
+    return res.status(200).json({
+      success: true,
+      count: tutors.length,
+      tutors,
+    });
+  } catch (error) {
+    console.error("Search tutors error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Unable to search tutors",
+    });
+  }
+};
+
+export const getTutorById = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const tutor = await TutorProfile.findOne({
+      _id: id,
+      verificationStatus: "approved",
+    }).populate(
+      "user",
+      "name email phone"
+    );
+
+    if (!tutor) {
+      return res.status(404).json({
+        success: false,
+        message: "Approved tutor not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      tutor,
+    });
+  } catch (error) {
+    console.error("Get tutor by ID error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Unable to fetch tutor profile",
+    });
+  }
+};
