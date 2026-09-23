@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import api from "../../services/api";
 
 const TutorSearch = () => {
@@ -390,12 +391,12 @@ const TutorSearch = () => {
                       </p>
                     </div>
 
-                    <button
-                      type="button"
-                      className="rounded-xl bg-slate-900 px-4 py-2 font-medium text-white transition hover:bg-slate-800"
-                    >
-                      View Profile
-                    </button>
+                    <Link
+                        to={`/tutors/${tutor._id}`}
+                        className="rounded-xl bg-slate-900 px-4 py-2 font-medium text-white transition hover:bg-slate-800"
+                      >
+                        View Profile
+                    </Link>
                   </div>
                 </div>
               </div>

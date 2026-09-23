@@ -13,10 +13,14 @@ import ParentDashboard from "../pages/parent/ParentDashboard";
 import TutorDashboard from "../pages/tutor/TutorDashboard";
 import SchoolDashboard from "../pages/school/SchoolDashboard";
 import AdminDashboard from "../pages/admin/AdminDashboard";
+import TutorRequests from "../pages/tutor/TutorRequests";
+import StudentRequests from "../pages/student/StudentRequests";
+import TutorStudents from "../pages/tutor/TutorStudents";
 
 import ProtectedRoute from "./ProtectedRoute";
 
 import TutorSearch from "../pages/public/TutorSearch";
+import TutorProfile from "../pages/public/TutorProfile";
 
 function AppRoutes() {
   return (
@@ -27,6 +31,7 @@ function AppRoutes() {
         <Route path="/" element={<Home />} />
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
+        <Route path="/tutors/:id" element={<TutorProfile />} />
         <Route path="/tutors" element={<TutorSearch />} />
 
         {/* Student */}
@@ -75,6 +80,33 @@ function AppRoutes() {
           element={
             <ProtectedRoute allowedRoles={["admin"]}>
               <AdminDashboard />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/tutor/requests"
+          element={
+            <ProtectedRoute allowedRoles={["tutor"]}>
+              <TutorRequests />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/student/requests"
+          element={
+            <ProtectedRoute allowedRoles={["student"]}>
+              <StudentRequests />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/tutor/students"
+          element={
+            <ProtectedRoute allowedRoles={["tutor"]}>
+              <TutorStudents />
             </ProtectedRoute>
           }
         />
