@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import api from "../../services/api";
 
@@ -218,12 +219,22 @@ function TutorDashboard() {
             </p>
           </div>
 
-          <button
-            onClick={logout}
-            className="rounded-xl bg-red-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-red-700"
-          >
-            Logout
-          </button>
+          <div className="flex items-center gap-3">
+            <Link
+              to="/tutor/classes"
+              className="rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-indigo-700"
+            >
+              My Classes
+            </Link>
+
+            <button
+              onClick={logout}
+              className="rounded-xl bg-red-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-red-700"
+            >
+              Logout
+            </button>
+          </div>
+          
         </div>
       </header>
 
