@@ -17,6 +17,7 @@ import TutorRequests from "../pages/tutor/TutorRequests";
 import StudentRequests from "../pages/student/StudentRequests";
 import TutorStudents from "../pages/tutor/TutorStudents";
 import TutorClasses from "../pages/tutor/TutorClasses";
+import StudentClasses from "../pages/student/StudentClasses";
 
 import ProtectedRoute from "./ProtectedRoute";
 
@@ -41,6 +42,15 @@ function AppRoutes() {
           element={
             <ProtectedRoute allowedRoles={["student"]}>
               <StudentDashboard />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/student/classes"
+          element={
+            <ProtectedRoute allowedRoles={["student"]}>
+              <StudentClasses />
             </ProtectedRoute>
           }
         />

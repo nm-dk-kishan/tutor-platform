@@ -3,27 +3,46 @@ import { Link } from "react-router-dom";
 import api from "../../services/api";
 
 function TutorClasses() {
+  // Store all class sessions
   const [sessions, setSessions] = useState([]);
+
+  // Page loading state
   const [loading, setLoading] = useState(true);
+
+  // General error message
   const [error, setError] = useState("");
 
+  // Show/hide schedule form
   const [showForm, setShowForm] = useState(false);
+
+  // Active students connected to this tutor
   const [students, setStudents] = useState([]);
+
+  // Schedule form states
   const [selectedStudent, setSelectedStudent] = useState("");
   const [scheduledStart, setScheduledStart] = useState("");
   const [scheduledEnd, setScheduledEnd] = useState("");
   const [mode, setMode] = useState("home");
+
+  // Home class location
   const [address, setAddress] = useState("");
   const [latitude, setLatitude] = useState("");
   const [longitude, setLongitude] = useState("");
+
+  // Loading states
   const [saving, setSaving] = useState(false);
   const [checkingIn, setCheckingIn] = useState("");
+  const [checkingOut, setCheckingOut] = useState("");
+  const [gettingLocation, setGettingLocation] = useState(false);
+  const [gettingAddress, setGettingAddress] = useState(false);
 
+  // Load classes and students when page opens
   useEffect(() => {
     fetchSessions();
     fetchStudents();
   }, []);
 
+  // Get tutor's class sessions
   const fetchSessions = async () => {
     try {
       setLoading(true);
@@ -34,15 +53,21 @@ function TutorClasses() {
       if (response.data.success) {
         setSessions(response.data.sessions || []);
       } else {
-        setError(response.data.message || "Unable to load your classes.");
+        setError(
+          response.data.message || "Unable to load your classes."
+        );
       }
     } catch (error) {
-      setError(error.response?.data?.message || "Unable to load your classes.");
+      setError(
+        error.response?.data?.message ||
+          "Unable to load your classes."
+      );
     } finally {
       setLoading(false);
     }
   };
 
+  // Get students connected to the tutor
   const fetchStudents = async () => {
     try {
       const response = await api.get("/tutor-requests/students");
@@ -50,34 +75,136 @@ function TutorClasses() {
       if (response.data.success) {
         setStudents(response.data.students || []);
       } else {
-        setError(response.data.message || "Unable to load your students.");
+        setError(
+          response.data.message ||
+            "Unable to load your students."
+        );
       }
     } catch (error) {
       setError(
-        error.response?.data?.message || "Unable to load your students.",
+        error.response?.data?.message ||
+          "Unable to load your students."
       );
     }
   };
 
+  // Get the tutor's current browser GPS location
+  const handleGetCurrentLocation = () => {
+    setError("");
+    setGettingLocation(true);
+
+    if (!navigator.geolocation) {
+      setError("Geolocation is not supported by your browser.");
+      setGettingLocation(false);
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const currentLatitude = position.coords.latitude;
+        const currentLongitude = position.coords.longitude;
+
+        // Save GPS coordinates
+        setLatitude(currentLatitude.toString());
+        setLongitude(currentLongitude.toString());
+
+        // Start reverse geocoding
+        setGettingAddress(true);
+
+        try {
+          const response = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${currentLatitude}&lon=${currentLongitude}&zoom=18&addressdetails=1`,
+            {
+              headers: {
+                Accept: "application/json",
+              },
+            }
+          );
+
+          if (!response.ok) {
+            throw new Error("Unable to fetch address.");
+          }
+
+          const data = await response.json();
+
+          // Use the readable display address returned by Nominatim
+          if (data.display_name) {
+            setAddress(data.display_name);
+          } else {
+            setAddress(
+              `${currentLatitude.toFixed(
+                6
+              )}, ${currentLongitude.toFixed(6)}`
+            );
+          }
+        } catch (error) {
+          console.error("Reverse geocoding error:", error);
+
+          setAddress(
+            `${currentLatitude.toFixed(
+              6
+            )}, ${currentLongitude.toFixed(6)}`
+          );
+
+          setError(
+            "Location found, but the readable address could not be loaded."
+          );
+        } finally {
+          setGettingAddress(false);
+          setGettingLocation(false);
+        }
+      },
+      (error) => {
+        let message = "Unable to get your current location.";
+
+        if (error.code === error.PERMISSION_DENIED) {
+          message =
+            "Location permission was denied. Please allow location access.";
+        } else if (
+          error.code === error.POSITION_UNAVAILABLE
+        ) {
+          message = "Your current location is unavailable.";
+        } else if (error.code === error.TIMEOUT) {
+          message =
+            "Location request timed out. Please try again.";
+        }
+
+        setError(message);
+        setGettingLocation(false);
+        setGettingAddress(false);
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 15000,
+        maximumAge: 0,
+      }
+    );
+  };
+
+  // Schedule a new class
   const handleScheduleClass = async () => {
     try {
       setError("");
 
+      // Student is required
       if (!selectedStudent) {
         setError("Please select a student.");
         return;
       }
 
+      // Start and end times are required
       if (!scheduledStart || !scheduledEnd) {
         setError("Please select start and end times.");
         return;
       }
 
+      // End must be after start
       if (new Date(scheduledEnd) <= new Date(scheduledStart)) {
         setError("End time must be after start time.");
         return;
       }
 
+      // Home classes need location information
       if (mode === "home") {
         if (!address.trim()) {
           setError("Please enter the class address.");
@@ -85,18 +212,27 @@ function TutorClasses() {
         }
 
         if (!latitude || !longitude) {
-          setError("Please enter the class location coordinates.");
+          setError(
+            "Please use your current location or enter valid coordinates."
+          );
           return;
         }
 
         const numericLatitude = Number(latitude);
         const numericLongitude = Number(longitude);
 
-        if (Number.isNaN(numericLatitude) || Number.isNaN(numericLongitude)) {
-          setError("Latitude and longitude must be valid numbers.");
+        // Check that coordinates are numbers
+        if (
+          Number.isNaN(numericLatitude) ||
+          Number.isNaN(numericLongitude)
+        ) {
+          setError(
+            "Latitude and longitude must be valid numbers."
+          );
           return;
         }
 
+        // Check valid latitude/longitude ranges
         if (
           numericLatitude < -90 ||
           numericLatitude > 90 ||
@@ -110,28 +246,47 @@ function TutorClasses() {
 
       setSaving(true);
 
+      // Create request payload
       const payload = {
         studentId: selectedStudent,
-        scheduledStart: new Date(scheduledStart).toISOString(),
-        scheduledEnd: new Date(scheduledEnd).toISOString(),
+
+        // Convert local date/time to ISO format
+        scheduledStart: new Date(
+          scheduledStart
+        ).toISOString(),
+
+        scheduledEnd: new Date(
+          scheduledEnd
+        ).toISOString(),
+
         mode,
       };
 
+      // Add location only for home classes
       if (mode === "home") {
         payload.address = address.trim();
         payload.latitude = Number(latitude);
         payload.longitude = Number(longitude);
       }
 
-      const response = await api.post("/class-sessions", payload);
+      // Send request to backend
+      const response = await api.post(
+        "/class-sessions",
+        payload
+      );
 
       if (!response.data.success) {
-        setError(response.data.message || "Unable to schedule class.");
+        setError(
+          response.data.message ||
+            "Unable to schedule class."
+        );
         return;
       }
 
+      // Refresh class list
       await fetchSessions();
 
+      // Clear form
       setSelectedStudent("");
       setScheduledStart("");
       setScheduledEnd("");
@@ -139,84 +294,190 @@ function TutorClasses() {
       setAddress("");
       setLatitude("");
       setLongitude("");
+
+      // Close form
       setShowForm(false);
     } catch (error) {
-      setError(error.response?.data?.message || "Unable to schedule class.");
+      setError(
+        error.response?.data?.message ||
+          "Unable to schedule class."
+      );
     } finally {
       setSaving(false);
     }
   };
 
+  // Start a class using the tutor's current GPS location
   const handleCheckIn = (sessionId) => {
     setError("");
     setCheckingIn(sessionId);
 
+    // Check browser GPS support
     if (!navigator.geolocation) {
-      setError("Geolocation is not supported by your browser.");
+      setError(
+        "Geolocation is not supported by your browser."
+      );
       setCheckingIn("");
       return;
     }
 
+    // Get current GPS location
     navigator.geolocation.getCurrentPosition(
       async (position) => {
         try {
-          const latitude = position.coords.latitude;
-          const longitude = position.coords.longitude;
+          // Current tutor location
+          const currentLatitude =
+            position.coords.latitude;
 
+          const currentLongitude =
+            position.coords.longitude;
+
+          // Send GPS coordinates to backend
           const response = await api.patch(
             `/class-sessions/${sessionId}/check-in`,
             {
-              latitude,
-              longitude,
-            },
+              latitude: currentLatitude,
+              longitude: currentLongitude,
+            }
           );
 
+          // Handle backend error
           if (!response.data.success) {
-            setError(response.data.message || "Unable to start the class.");
+            setError(
+              response.data.message ||
+                "Unable to start the class."
+            );
             return;
           }
 
+          // Refresh class list
           await fetchSessions();
         } catch (error) {
           setError(
-            error.response?.data?.message || "Unable to start the class.",
+            error.response?.data?.message ||
+              "Unable to start the class."
           );
         } finally {
           setCheckingIn("");
         }
       },
       (error) => {
-        let message = "Unable to get your location.";
+        let message =
+          "Unable to get your location.";
 
-        switch (error.code) {
-          case error.PERMISSION_DENIED:
-            message =
-              "Location permission was denied. Please allow location access and try again.";
-            break;
+        // Permission denied
+        if (error.code === error.PERMISSION_DENIED) {
+          message =
+            "Location permission was denied. Please allow location access and try again.";
+        }
 
-          case error.POSITION_UNAVAILABLE:
-            message = "Your current location is unavailable.";
-            break;
+        // Location unavailable
+        else if (
+          error.code === error.POSITION_UNAVAILABLE
+        ) {
+          message =
+            "Your current location is unavailable.";
+        }
 
-          case error.TIMEOUT:
-            message = "Location request timed out. Please try again.";
-            break;
-
-          default:
-            message = "Unable to get your current location.";
+        // Location request timed out
+        else if (error.code === error.TIMEOUT) {
+          message =
+            "Location request timed out. Please try again.";
         }
 
         setError(message);
         setCheckingIn("");
       },
       {
+        // Better GPS accuracy
         enableHighAccuracy: true,
+
+        // Maximum wait time
         timeout: 15000,
+
+        // Always request fresh location
         maximumAge: 0,
-      },
+      }
     );
   };
 
+  const handleCheckOut = (sessionId) => {
+  setError("");
+  setCheckingOut(sessionId);
+
+  // Check browser GPS support
+  if (!navigator.geolocation) {
+    setError(
+      "Geolocation is not supported by your browser."
+    );
+    setCheckingOut("");
+    return;
+  }
+
+  // Get the tutor's current location
+  navigator.geolocation.getCurrentPosition(
+    async (position) => {
+      try {
+        const latitude = position.coords.latitude;
+        const longitude = position.coords.longitude;
+
+        // Send current GPS position to backend
+        const response = await api.patch(
+          `/class-sessions/${sessionId}/check-out`,
+          {
+            latitude,
+            longitude,
+          }
+        );
+
+        if (!response.data.success) {
+          setError(
+            response.data.message ||
+              "Unable to end the class."
+          );
+          return;
+        }
+
+        // Reload sessions so the UI shows completed/present
+        await fetchSessions();
+      } catch (error) {
+        setError(
+          error.response?.data?.message ||
+            "Unable to end the class."
+        );
+      } finally {
+        setCheckingOut("");
+      }
+    },
+    (error) => {
+      let message =
+        "Unable to get your current location.";
+
+      if (error.code === error.PERMISSION_DENIED) {
+        message =
+          "Location permission was denied. Please allow location access and try again.";
+      } else if (
+        error.code === error.POSITION_UNAVAILABLE
+      ) {
+        message =
+          "Your current location is unavailable.";
+      } else if (error.code === error.TIMEOUT) {
+        message =
+          "Location request timed out. Please try again.";
+      }
+
+      setError(message);
+      setCheckingOut("");
+    },
+    {
+      enableHighAccuracy: true,
+      timeout: 15000,
+      maximumAge: 0,
+    }
+  );
+};
+
+  // Format dates for display
   const formatDateTime = (date) => {
     if (!date) {
       return "Not available";
@@ -228,6 +489,7 @@ function TutorClasses() {
     });
   };
 
+  // Get badge styling based on session status
   const getStatusStyle = (status) => {
     switch (status) {
       case "scheduled":
@@ -259,6 +521,7 @@ function TutorClasses() {
     }
   };
 
+  // Convert status to readable text
   const formatStatus = (status) => {
     if (!status) {
       return "Unknown";
@@ -266,16 +529,21 @@ function TutorClasses() {
 
     return status
       .replaceAll("_", " ")
-      .replace(/\b\w/g, (letter) => letter.toUpperCase());
+      .replace(/\b\w/g, (letter) =>
+        letter.toUpperCase()
+      );
   };
 
+  // Loading screen
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-50">
         <div className="text-center">
           <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-indigo-600" />
 
-          <p className="mt-4 text-sm text-slate-600">Loading your classes...</p>
+          <p className="mt-4 text-sm text-slate-600">
+            Loading your classes...
+          </p>
         </div>
       </div>
     );
@@ -311,6 +579,7 @@ function TutorClasses() {
 
       {/* Main */}
       <main className="mx-auto max-w-7xl px-6 py-8">
+        {/* Error message */}
         {error && (
           <div className="mb-6 flex items-start justify-between gap-4 rounded-2xl border border-red-200 bg-red-50 p-5 text-sm font-medium text-red-700">
             <span>{error}</span>
@@ -326,7 +595,7 @@ function TutorClasses() {
           </div>
         )}
 
-        {/* Top section */}
+        {/* Page heading */}
         <section className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <p className="text-sm font-semibold text-indigo-600">
@@ -338,11 +607,13 @@ function TutorClasses() {
             </h2>
 
             <p className="mt-2 text-sm text-slate-500">
-              Start classes using GPS verification and track attendance.
+              Start classes using GPS verification and track
+              attendance.
             </p>
           </div>
 
           <div className="flex flex-wrap gap-3">
+            {/* Open schedule form */}
             <button
               type="button"
               onClick={() => {
@@ -351,9 +622,12 @@ function TutorClasses() {
               }}
               className="rounded-xl bg-indigo-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-indigo-700"
             >
-              {showForm ? "Close Form" : "Schedule New Class"}
+              {showForm
+                ? "Close Form"
+                : "Schedule New Class"}
             </button>
 
+            {/* Refresh */}
             <button
               type="button"
               onClick={fetchSessions}
@@ -377,7 +651,8 @@ function TutorClasses() {
               </h3>
 
               <p className="mt-2 text-sm text-slate-500">
-                Select one of your active students and enter the class details.
+                Select one of your active students and enter
+                the class details.
               </p>
             </div>
 
@@ -390,13 +665,20 @@ function TutorClasses() {
 
                 <select
                   value={selectedStudent}
-                  onChange={(e) => setSelectedStudent(e.target.value)}
+                  onChange={(e) =>
+                    setSelectedStudent(e.target.value)
+                  }
                   className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
                 >
-                  <option value="">Select student</option>
+                  <option value="">
+                    Select student
+                  </option>
 
                   {students.map((item) => (
-                    <option key={item.student?._id} value={item.student?._id}>
+                    <option
+                      key={item.student?._id}
+                      value={item.student?._id}
+                    >
                       {item.student?.name}
                     </option>
                   ))}
@@ -420,12 +702,17 @@ function TutorClasses() {
                   onChange={(e) => setMode(e.target.value)}
                   className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
                 >
-                  <option value="home">Home</option>
-                  <option value="online">Online</option>
+                  <option value="home">
+                    Home
+                  </option>
+
+                  <option value="online">
+                    Online
+                  </option>
                 </select>
               </div>
 
-              {/* Start */}
+              {/* Start time */}
               <div>
                 <label className="mb-2 block text-sm font-medium text-slate-700">
                   Start Time
@@ -434,12 +721,14 @@ function TutorClasses() {
                 <input
                   type="datetime-local"
                   value={scheduledStart}
-                  onChange={(e) => setScheduledStart(e.target.value)}
+                  onChange={(e) =>
+                    setScheduledStart(e.target.value)
+                  }
                   className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
                 />
               </div>
 
-              {/* End */}
+              {/* End time */}
               <div>
                 <label className="mb-2 block text-sm font-medium text-slate-700">
                   End Time
@@ -448,12 +737,14 @@ function TutorClasses() {
                 <input
                   type="datetime-local"
                   value={scheduledEnd}
-                  onChange={(e) => setScheduledEnd(e.target.value)}
+                  onChange={(e) =>
+                    setScheduledEnd(e.target.value)
+                  }
                   className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
                 />
               </div>
 
-              {/* Home details */}
+              {/* Home class location */}
               {mode === "home" && (
                 <>
                   {/* Address */}
@@ -465,7 +756,9 @@ function TutorClasses() {
                     <input
                       type="text"
                       value={address}
-                      onChange={(e) => setAddress(e.target.value)}
+                      onChange={(e) =>
+                        setAddress(e.target.value)
+                      }
                       placeholder="Example: Sector 14, Gurugram"
                       className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
                     />
@@ -481,8 +774,10 @@ function TutorClasses() {
                       type="number"
                       step="any"
                       value={latitude}
-                      onChange={(e) => setLatitude(e.target.value)}
-                      placeholder="28.4595"
+                      onChange={(e) =>
+                        setLatitude(e.target.value)
+                      }
+                      placeholder="Click Use My Current Location"
                       className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
                     />
                   </div>
@@ -497,20 +792,41 @@ function TutorClasses() {
                       type="number"
                       step="any"
                       value={longitude}
-                      onChange={(e) => setLongitude(e.target.value)}
-                      placeholder="77.0266"
+                      onChange={(e) =>
+                        setLongitude(e.target.value)
+                      }
+                      placeholder="Click Use My Current Location"
                       className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
                     />
                   </div>
 
+                  {/* Current location button */}
+                  <div className="md:col-span-2">
+                    <button
+                      type="button"
+                      onClick={handleGetCurrentLocation}
+                      disabled={gettingLocation}
+                      className="w-full rounded-xl border border-indigo-200 bg-indigo-50 px-5 py-3 text-sm font-semibold text-indigo-700 transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {gettingLocation
+                        ? "Getting Location..."
+                        : gettingAddress
+                        ? "Finding Address..."
+                        : "📍 Use My Current Location"}
+                    </button>
+                  </div>
+
+                  {/* GPS information */}
                   <div className="md:col-span-2 rounded-2xl border border-indigo-100 bg-indigo-50 p-4">
                     <p className="text-sm font-semibold text-indigo-900">
-                      GPS location
+                      GPS verification
                     </p>
 
                     <p className="mt-1 text-sm leading-6 text-indigo-700">
-                      These coordinates are used later to verify the
-                      tutor&apos;s location when starting and ending the class.
+                      The saved location is used to verify
+                      that the tutor is within 100 meters of
+                      the class location when starting and
+                      ending a home class.
                     </p>
                   </div>
                 </>
@@ -524,13 +840,14 @@ function TutorClasses() {
                   </p>
 
                   <p className="mt-1 text-sm leading-6 text-sky-700">
-                    GPS verification will not be required for an online class.
+                    GPS verification is not used for the
+                    class location.
                   </p>
                 </div>
               )}
             </div>
 
-            {/* Submit */}
+            {/* Schedule button */}
             <div className="mt-6 flex justify-end">
               <button
                 type="button"
@@ -538,13 +855,15 @@ function TutorClasses() {
                 disabled={saving}
                 className="rounded-xl bg-indigo-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {saving ? "Scheduling..." : "Schedule Class"}
+                {saving
+                  ? "Scheduling..."
+                  : "Schedule Class"}
               </button>
             </div>
           </section>
         )}
 
-        {/* Classes */}
+        {/* Class list */}
         {sessions.length === 0 ? (
           <section className="rounded-3xl border border-slate-200 bg-white p-10 text-center shadow-sm">
             <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-indigo-50 text-2xl">
@@ -556,8 +875,8 @@ function TutorClasses() {
             </h3>
 
             <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-500">
-              You don&apos;t have any class sessions yet. Schedule your first
-              class above.
+              You don&apos;t have any class sessions yet.
+              Schedule your first class above.
             </p>
           </section>
         ) : (
@@ -567,17 +886,18 @@ function TutorClasses() {
                 key={session._id}
                 className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"
               >
-                {/* Top row */}
+                {/* Session header */}
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                   <div>
                     <div className="flex flex-wrap items-center gap-3">
                       <h3 className="text-xl font-bold text-slate-950">
-                        {session.student?.name || "Student"}
+                        {session.student?.name ||
+                          "Student"}
                       </h3>
 
                       <span
                         className={`rounded-full px-3 py-1 text-xs font-semibold ${getStatusStyle(
-                          session.status,
+                          session.status
                         )}`}
                       >
                         {formatStatus(session.status)}
@@ -585,38 +905,47 @@ function TutorClasses() {
                     </div>
 
                     <p className="mt-2 text-sm text-slate-500">
-                      {session.mode === "home" ? "Home Class" : "Online Class"}
+                      {session.mode === "home"
+                        ? "Home Class"
+                        : "Online Class"}
                     </p>
                   </div>
 
+                  {/* Attendance */}
                   <div className="text-left lg:text-right">
                     <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
                       Attendance
                     </p>
 
                     <p className="mt-1 font-bold capitalize text-slate-900">
-                      {session.attendanceStatus || "Pending"}
+                      {session.attendanceStatus ||
+                        "Pending"}
                     </p>
                   </div>
                 </div>
 
-                {/* Details */}
+                {/* Session details */}
                 <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                   <InfoCard
                     label="Start"
-                    value={formatDateTime(session.scheduledStart)}
+                    value={formatDateTime(
+                      session.scheduledStart
+                    )}
                   />
 
                   <InfoCard
                     label="End"
-                    value={formatDateTime(session.scheduledEnd)}
+                    value={formatDateTime(
+                      session.scheduledEnd
+                    )}
                   />
 
                   <InfoCard
                     label="Location"
                     value={
                       session.mode === "home"
-                        ? session.location?.address || "Home location"
+                        ? session.location?.address ||
+                          "Home location"
                         : "Online"
                     }
                   />
@@ -631,19 +960,25 @@ function TutorClasses() {
                   />
                 </div>
 
-                {/* Status message */}
+                {/* Session actions/status */}
                 <div className="mt-6 rounded-2xl bg-slate-50 p-4">
+                  {/* Scheduled */}
                   {session.status === "scheduled" && (
                     <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                       <p className="text-sm text-slate-700">
-                        This class is scheduled. Start the class when you arrive
-                        at the class location.
+                        This class is scheduled. Start the
+                        class when you arrive at the class
+                        location.
                       </p>
 
                       <button
                         type="button"
-                        onClick={() => handleCheckIn(session._id)}
-                        disabled={checkingIn === session._id}
+                        onClick={() =>
+                          handleCheckIn(session._id)
+                        }
+                        disabled={
+                          checkingIn === session._id
+                        }
                         className="shrink-0 rounded-xl bg-green-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-60"
                       >
                         {checkingIn === session._id
@@ -653,46 +988,77 @@ function TutorClasses() {
                     </div>
                   )}
 
-                  {session.status === "tutor_checked_in" && (
+                  {/* Tutor checked in */}
+                  {session.status ===
+                    "tutor_checked_in" && (
                     <p className="text-sm font-medium text-amber-700">
-                      You have checked in. Waiting for the student to confirm
-                      the class.
+                      You have checked in. Waiting for the
+                      student to confirm the class.
                     </p>
                   )}
 
+                  {/* Active */}
                   {session.status === "active" && (
-                    <p className="text-sm font-medium text-green-700">
-                      Class is currently active.
-                    </p>
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-green-700">
+                          Class is currently active.
+                        </p>
+
+                        <p className="mt-1 text-sm text-slate-600">
+                          End the class when the session is finished.
+                        </p>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => handleCheckOut(session._id)}
+                        disabled={checkingOut === session._id}
+                        className="shrink-0 rounded-xl bg-red-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {checkingOut === session._id
+                          ? "Verifying Location..."
+                          : "End Class"}
+                      </button>
+                    </div>
                   )}
 
+                  {/* Completed */}
                   {session.status === "completed" && (
                     <p className="text-sm font-medium text-slate-700">
-                      Class completed successfully and attendance was recorded.
+                      Class completed successfully and
+                      attendance was recorded.
                     </p>
                   )}
 
+                  {/* Cancelled */}
                   {session.status === "cancelled" && (
                     <p className="text-sm font-medium text-red-700">
                       This class has been cancelled.
                     </p>
                   )}
 
+                  {/* Disputed */}
                   {session.status === "disputed" && (
                     <p className="text-sm font-medium text-purple-700">
-                      This class attendance is currently under dispute.
+                      This class attendance is currently
+                      under dispute.
                     </p>
                   )}
 
+                  {/* Tutor absent */}
                   {session.status === "tutor_absent" && (
                     <p className="text-sm font-medium text-red-700">
-                      The tutor was marked absent for this class.
+                      The tutor was marked absent for this
+                      class.
                     </p>
                   )}
 
+                  {/* Student absent */}
                   {session.status === "student_absent" && (
                     <p className="text-sm font-medium text-red-700">
-                      The student was marked absent for this class.
+                      The student was marked absent for this
+                      class.
                     </p>
                   )}
                 </div>
@@ -705,6 +1071,7 @@ function TutorClasses() {
   );
 }
 
+// Reusable information card
 function InfoCard({ label, value }) {
   return (
     <div className="rounded-2xl bg-slate-50 p-4">
@@ -712,7 +1079,9 @@ function InfoCard({ label, value }) {
         {label}
       </p>
 
-      <p className="mt-2 text-sm font-semibold text-slate-900">{value}</p>
+      <p className="mt-2 text-sm font-semibold text-slate-900">
+        {value}
+      </p>
     </div>
   );
 }
