@@ -3,28 +3,19 @@ import TutorProfile from "../models/TutorProfile.js";
 import TutorStudent from "../models/TutorStudent.js";
 import User from "../models/User.js";
 
-const calculateDistance = (
-  latitude1,
-  longitude1,
-  latitude2,
-  longitude2
-) => {
+const calculateDistance = (latitude1, longitude1, latitude2, longitude2) => {
   const earthRadius = 6371000;
 
   const lat1 = (latitude1 * Math.PI) / 180;
   const lat2 = (latitude2 * Math.PI) / 180;
 
-  const deltaLat =
-    ((latitude2 - latitude1) * Math.PI) / 180;
+  const deltaLat = ((latitude2 - latitude1) * Math.PI) / 180;
 
-  const deltaLongitude =
-    ((longitude2 - longitude1) * Math.PI) / 180;
+  const deltaLongitude = ((longitude2 - longitude1) * Math.PI) / 180;
 
   const a =
     Math.sin(deltaLat / 2) ** 2 +
-    Math.cos(lat1) *
-      Math.cos(lat2) *
-      Math.sin(deltaLongitude / 2) ** 2;
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(deltaLongitude / 2) ** 2;
 
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
@@ -47,12 +38,7 @@ export const createClassSession = async (req, res) => {
       longitude,
     } = req.body;
 
-    if (
-      !studentId ||
-      !scheduledStart ||
-      !scheduledEnd ||
-      !mode
-    ) {
+    if (!studentId || !scheduledStart || !scheduledEnd || !mode) {
       return res.status(400).json({
         success: false,
         message:
@@ -70,10 +56,7 @@ export const createClassSession = async (req, res) => {
     const start = new Date(scheduledStart);
     const end = new Date(scheduledEnd);
 
-    if (
-      Number.isNaN(start.getTime()) ||
-      Number.isNaN(end.getTime())
-    ) {
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
       return res.status(400).json({
         success: false,
         message: "Invalid date or time",
@@ -124,14 +107,10 @@ export const createClassSession = async (req, res) => {
     }
 
     if (mode === "home") {
-      if (
-        latitude === undefined ||
-        longitude === undefined
-      ) {
+      if (latitude === undefined || longitude === undefined) {
         return res.status(400).json({
           success: false,
-          message:
-            "Latitude and longitude are required for home classes",
+          message: "Latitude and longitude are required for home classes",
         });
       }
     }
@@ -159,14 +138,9 @@ export const createClassSession = async (req, res) => {
       attendanceStatus: "pending",
     });
 
-    const populatedSession = await ClassSession.findById(
-      session._id
-    )
+    const populatedSession = await ClassSession.findById(session._id)
       .populate("student", "name email phone")
-      .populate(
-        "tutor",
-        "domain subjects classes city area hourlyFee"
-      );
+      .populate("tutor", "domain subjects classes city area hourlyFee");
 
     return res.status(201).json({
       success: true,
@@ -237,10 +211,7 @@ export const getMySessions = async (req, res) => {
     const sessions = await ClassSession.find({
       student: req.user.userId,
     })
-      .populate(
-        "tutor",
-        "domain subjects classes city area hourlyFee"
-      )
+      .populate("tutor", "domain subjects classes city area hourlyFee")
       .sort({ scheduledStart: 1 });
 
     return res.status(200).json({
@@ -267,10 +238,7 @@ export const tutorCheckIn = async (req, res) => {
     const { id } = req.params;
     const { latitude, longitude } = req.body;
 
-    if (
-      latitude === undefined ||
-      longitude === undefined
-    ) {
+    if (latitude === undefined || longitude === undefined) {
       return res.status(400).json({
         success: false,
         message: "Latitude and longitude are required",
@@ -307,6 +275,35 @@ export const tutorCheckIn = async (req, res) => {
       });
     }
 
+    // Get the current time
+    const now = new Date();
+
+    // Get the scheduled class start and end times
+    const scheduledStart = new Date(session.scheduledStart);
+    const scheduledEnd = new Date(session.scheduledEnd);
+
+    // Allow tutor to check in 15 minutes before the class starts
+    const earliestCheckIn = new Date(scheduledStart.getTime() - 15 * 60 * 1000);
+
+    // Reject check-in if it is too early
+    if (now < earliestCheckIn) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "This class cannot be started yet. Check-in opens 15 minutes before the scheduled start time.",
+        scheduledStart,
+      });
+    }
+
+    // Reject check-in if the class has already ended
+    if (now >= scheduledEnd) {
+      return res.status(400).json({
+        success: false,
+        message: "This class has already ended and cannot be started.",
+        scheduledEnd,
+      });
+    }
+
     if (session.mode !== "home") {
       session.tutorCheckIn = {
         checkedIn: true,
@@ -332,17 +329,16 @@ export const tutorCheckIn = async (req, res) => {
       Number(latitude),
       Number(longitude),
       session.location.latitude,
-      session.location.longitude
+      session.location.longitude,
     );
 
-    const allowedRadius =
-      session.location.allowedRadiusMeters || 100;
+    const allowedRadius = session.location.allowedRadiusMeters || 100;
 
     if (distance > allowedRadius) {
       return res.status(403).json({
         success: false,
         message: `You are too far from the class location. Distance: ${Math.round(
-          distance
+          distance,
         )} meters.`,
         distanceMeters: Math.round(distance),
         allowedRadiusMeters: allowedRadius,
@@ -409,8 +405,7 @@ export const studentConfirmClass = async (req, res) => {
     if (session.status !== "tutor_checked_in") {
       return res.status(400).json({
         success: false,
-        message:
-          "Tutor must check in before you can confirm the class",
+        message: "Tutor must check in before you can confirm the class",
       });
     }
 
@@ -429,10 +424,7 @@ export const studentConfirmClass = async (req, res) => {
       session,
     });
   } catch (error) {
-    console.error(
-      "Student confirmation error:",
-      error
-    );
+    console.error("Student confirmation error:", error);
 
     return res.status(500).json({
       success: false,
@@ -450,10 +442,7 @@ export const tutorCheckOut = async (req, res) => {
     const { id } = req.params;
     const { latitude, longitude } = req.body;
 
-    if (
-      latitude === undefined ||
-      longitude === undefined
-    ) {
+    if (latitude === undefined || longitude === undefined) {
       return res.status(400).json({
         success: false,
         message: "Latitude and longitude are required",
@@ -486,8 +475,15 @@ export const tutorCheckOut = async (req, res) => {
     if (session.status !== "active") {
       return res.status(400).json({
         success: false,
-        message:
-          "Class must be active before it can be completed",
+        message: "Class must be active before it can be completed",
+      });
+    }
+
+    // Prevent checkout after the scheduled class has expired
+    if (new Date() > new Date(session.scheduledEnd)) {
+      return res.status(400).json({
+        success: false,
+        message: "This class has expired and can no longer be checked out.",
       });
     }
 
@@ -499,17 +495,16 @@ export const tutorCheckOut = async (req, res) => {
         Number(latitude),
         Number(longitude),
         session.location.latitude,
-        session.location.longitude
+        session.location.longitude,
       );
 
-      const allowedRadius =
-        session.location.allowedRadiusMeters || 100;
+      const allowedRadius = session.location.allowedRadiusMeters || 100;
 
       if (distance > allowedRadius) {
         return res.status(403).json({
           success: false,
           message: `You are too far from the class location. Distance: ${Math.round(
-            distance
+            distance,
           )} meters.`,
           distanceMeters: Math.round(distance),
           allowedRadiusMeters: allowedRadius,
@@ -523,11 +518,7 @@ export const tutorCheckOut = async (req, res) => {
 
     const durationMinutes = Math.max(
       0,
-      Math.round(
-        (actualEnd.getTime() -
-          actualStart.getTime()) /
-          (1000 * 60)
-      )
+      Math.round((actualEnd.getTime() - actualStart.getTime()) / (1000 * 60)),
     );
 
     session.tutorCheckOut = {
@@ -535,8 +526,7 @@ export const tutorCheckOut = async (req, res) => {
       latitude: Number(latitude),
       longitude: Number(longitude),
       checkedOutAt: actualEnd,
-      distanceFromLocationMeters:
-        Math.round(distance),
+      distanceFromLocationMeters: Math.round(distance),
       verified,
     };
 
@@ -550,8 +540,7 @@ export const tutorCheckOut = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      message:
-        "Class completed and attendance recorded",
+      message: "Class completed and attendance recorded",
       durationMinutes,
       session,
     });
