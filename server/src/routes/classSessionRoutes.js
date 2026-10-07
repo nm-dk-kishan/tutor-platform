@@ -7,6 +7,8 @@ import {
   tutorCheckIn,
   studentConfirmClass,
   tutorCheckOut,
+  resolveClassSession,
+  getDisputedSessions,
 } from "../controllers/classSessionController.js";
 
 import { protect } from "../middleware/authMiddleware.js";
@@ -37,6 +39,18 @@ router.patch(
   "/:id/check-out",
   protect,
   tutorCheckOut
+);
+
+router.patch(
+  "/:id/resolve",
+  protect,
+  resolveClassSession
+);
+
+router.get(
+  "/admin/disputed",
+  protect,
+  getDisputedSessions
 );
 
 export default router;

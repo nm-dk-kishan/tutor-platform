@@ -474,21 +474,25 @@ function TutorClasses() {
 
   // Check whether a class has already passed
   const isExpired = (session) => {
-    // Only scheduled/in-progress classes can become expired
+    // These statuses already describe the final state
+    // of the class, so they should not be displayed as "Expired".
     if (
       session.status === "completed" ||
       session.status === "cancelled" ||
-      session.status === "disputed"
+      session.status === "disputed" ||
+      session.status === "tutor_absent" ||
+      session.status === "student_absent"
     ) {
       return false;
     }
 
-    // No end time means we cannot determine expiry
+    // Without an end time we cannot determine expiry.
     if (!session.scheduledEnd) {
       return false;
     }
 
-    // Compare the scheduled end time with the current time
+    // A scheduled or in-progress class is expired
+    // when its scheduled end time has passed.
     return new Date(session.scheduledEnd) < new Date();
   };
 

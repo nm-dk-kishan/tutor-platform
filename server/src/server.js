@@ -9,7 +9,6 @@ import authRoutes from "./routes/authRoutes.js";
 import tutorRoutes from "./routes/tutorRoutes.js";
 import interviewRoutes from "./routes/interviewRoutes.js";
 import tutorRequestRoutes from "./routes/tutorRequestRoutes.js";
-import attendanceRoutes from "./routes/attendanceRoutes.js";
 import classSessionRoutes from "./routes/classSessionRoutes.js";
 
 dotenv.config();
@@ -44,8 +43,6 @@ app.use("/api/tutors", tutorRoutes);
 app.use("/api/tutor-requests", tutorRequestRoutes);
 
 app.use("/api/interviews", interviewRoutes);
-
-app.use("/api/attendance", attendanceRoutes);
 
 app.use("/api/class-sessions", classSessionRoutes);
 

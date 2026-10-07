@@ -22,6 +22,63 @@ const calculateDistance = (latitude1, longitude1, latitude2, longitude2) => {
   return earthRadius * c;
 };
 
+// Automatically update sessions whose scheduled time has passed
+
+const updateExpiredSessions = async () => {
+  try {
+    const now = new Date();
+
+    // Class ended without tutor check-in
+    await ClassSession.updateMany(
+      {
+        status: "scheduled",
+        scheduledEnd: { $lte: now },
+      },
+      {
+        $set: {
+          status: "tutor_absent",
+          attendanceStatus: "absent",
+          remarks: "Class expired without tutor check-in.",
+        },
+      },
+    );
+
+    // Tutor checked in, but student never confirmed
+    await ClassSession.updateMany(
+      {
+        status: "tutor_checked_in",
+        scheduledEnd: { $lte: now },
+      },
+      {
+        $set: {
+          status: "disputed",
+          attendanceStatus: "disputed",
+          remarks:
+            "Tutor checked in, but student did not confirm before the scheduled end time.",
+        },
+      },
+    );
+
+    // Student confirmed, class became active, but tutor never checked out
+    await ClassSession.updateMany(
+      {
+        status: "active",
+        scheduledEnd: { $lte: now },
+      },
+      {
+        $set: {
+          status: "disputed",
+          attendanceStatus: "disputed",
+          remarks:
+            "Class passed the scheduled end time without tutor checkout.",
+        },
+      },
+    );
+  } catch (error) {
+    console.error("Update expired sessions error:", error);
+  }
+};
+
 // ======================================================
 // CREATE CLASS SESSION
 // ======================================================
@@ -163,6 +220,8 @@ export const createClassSession = async (req, res) => {
 
 export const getTutorSessions = async (req, res) => {
   try {
+    await updateExpiredSessions();
+
     const tutorProfile = await TutorProfile.findOne({
       user: req.user.userId,
     });
@@ -200,6 +259,7 @@ export const getTutorSessions = async (req, res) => {
 // ======================================================
 
 export const getMySessions = async (req, res) => {
+  await updateExpiredSessions();
   try {
     if (req.user.role !== "student") {
       return res.status(403).json({
@@ -553,3 +613,120 @@ export const tutorCheckOut = async (req, res) => {
     });
   }
 };
+
+// ======================================================
+// ADMIN RESOLVES DISPUTED ATTENDANCE
+// ======================================================
+
+export const resolveClassSession = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { attendanceStatus, remarks } = req.body;
+
+    // Only admin can resolve attendance
+    if (req.user.role !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Only admins can resolve attendance",
+      });
+    }
+
+    // Allowed final attendance values
+    if (!["present", "absent", "leave"].includes(attendanceStatus)) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Attendance status must be present, absent or leave",
+      });
+    }
+
+    // Find class session
+    const session = await ClassSession.findById(id);
+
+    if (!session) {
+      return res.status(404).json({
+        success: false,
+        message: "Class session not found",
+      });
+    }
+
+    // Only disputed sessions should be resolved
+    if (session.status !== "disputed") {
+      return res.status(400).json({
+        success: false,
+        message: "Only disputed sessions can be resolved",
+      });
+    }
+
+    // Update attendance
+    session.attendanceStatus = attendanceStatus;
+
+    // Once resolved, the session is completed
+    session.status = "completed";
+
+    // Save admin remarks
+    if (remarks !== undefined) {
+      session.remarks = remarks;
+    }
+
+    await session.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Attendance resolved successfully",
+      session,
+    });
+  } catch (error) {
+    console.error("Resolve class session error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Unable to resolve attendance",
+    });
+  }
+};
+
+// ======================================================
+// ADMIN GETS DISPUTED CLASS SESSIONS
+// ======================================================
+
+export const getDisputedSessions = async (req, res) => {
+  try {
+    // Only admin can access disputed sessions
+    if (req.user.role !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Only admins can access disputed sessions",
+      });
+    }
+
+    // Find all disputed sessions
+    const sessions = await ClassSession.find({
+      status: "disputed",
+    })
+      .populate("student", "name email phone")
+      .populate({
+        path: "tutor",
+        select: "domain subjects classes city area hourlyFee user",
+        populate: {
+          path: "user",
+          select: "name email phone",
+        },
+      })
+      .sort({ scheduledStart: 1 });
+
+    return res.status(200).json({
+      success: true,
+      count: sessions.length,
+      sessions,
+    });
+  } catch (error) {
+    console.error("Get disputed sessions error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Unable to fetch disputed sessions",
+    });
+  }
+};
+

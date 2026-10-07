@@ -1,0 +1,386 @@
+import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
+import api from "../../services/api";
+
+function StudentAttendance() {
+  // Store all class sessions
+  const [sessions, setSessions] = useState([]);
+
+  // Loading state
+  const [loading, setLoading] = useState(true);
+
+  // Error message
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    fetchAttendance();
+  }, []);
+
+  // Get attendance from the new ClassSession system
+  const fetchAttendance = async () => {
+    try {
+      setLoading(true);
+      setError("");
+
+      const response = await api.get("/class-sessions/my");
+
+      if (response.data.success) {
+        setSessions(response.data.sessions || []);
+      } else {
+        setError(
+          response.data.message ||
+            "Unable to load attendance."
+        );
+      }
+    } catch (error) {
+      setError(
+        error.response?.data?.message ||
+          "Unable to load attendance."
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Format date and time
+  const formatDateTime = (date) => {
+    if (!date) {
+      return "Not available";
+    }
+
+    return new Date(date).toLocaleString("en-IN", {
+      dateStyle: "medium",
+      timeStyle: "short",
+    });
+  };
+
+  // Attendance badge
+  const getAttendanceStyle = (status) => {
+    switch (status) {
+      case "present":
+        return "bg-green-100 text-green-700";
+
+      case "absent":
+        return "bg-red-100 text-red-700";
+
+      case "leave":
+        return "bg-amber-100 text-amber-700";
+
+      case "disputed":
+        return "bg-purple-100 text-purple-700";
+
+      default:
+        return "bg-slate-100 text-slate-700";
+    }
+  };
+
+  // Convert attendance status to readable text
+  const formatAttendance = (status) => {
+    if (!status) {
+      return "Pending";
+    }
+
+    return status
+      .replaceAll("_", " ")
+      .replace(/\b\w/g, (letter) =>
+        letter.toUpperCase()
+      );
+  };
+
+  // Only sessions that have an attendance result
+  const attendanceSessions = sessions.filter(
+    (session) =>
+      session.attendanceStatus &&
+      session.attendanceStatus !== "pending"
+  );
+
+  // Calculate summary numbers
+  const presentCount = attendanceSessions.filter(
+    (session) => session.attendanceStatus === "present"
+  ).length;
+
+  const absentCount = attendanceSessions.filter(
+    (session) => session.attendanceStatus === "absent"
+  ).length;
+
+  const leaveCount = attendanceSessions.filter(
+    (session) => session.attendanceStatus === "leave"
+  ).length;
+
+  const disputedCount = attendanceSessions.filter(
+    (session) => session.attendanceStatus === "disputed"
+  ).length;
+
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-50">
+        <div className="text-center">
+          <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-indigo-600" />
+
+          <p className="mt-4 text-sm text-slate-600">
+            Loading attendance...
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-slate-50">
+      {/* Header */}
+      <header className="border-b border-slate-200 bg-white">
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-5">
+          <div>
+            <p className="text-sm font-semibold uppercase tracking-wide text-indigo-600">
+              Student Portal
+            </p>
+
+            <h1 className="mt-1 text-3xl font-bold text-slate-950">
+              Attendance
+            </h1>
+
+            <p className="mt-1 text-sm text-slate-500">
+              View your class attendance history.
+            </p>
+          </div>
+
+          <Link
+            to="/student"
+            className="rounded-xl border border-slate-300 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+          >
+            Back to Dashboard
+          </Link>
+        </div>
+      </header>
+
+      {/* Main */}
+      <main className="mx-auto max-w-7xl px-6 py-8">
+        {/* Error */}
+        {error && (
+          <div className="mb-6 rounded-2xl border border-red-200 bg-red-50 p-5 text-sm font-medium text-red-700">
+            {error}
+          </div>
+        )}
+
+        {/* Summary */}
+        <section className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <SummaryCard
+            label="Present"
+            value={presentCount}
+            style="bg-green-50 text-green-700"
+          />
+
+          <SummaryCard
+            label="Absent"
+            value={absentCount}
+            style="bg-red-50 text-red-700"
+          />
+
+          <SummaryCard
+            label="Leave"
+            value={leaveCount}
+            style="bg-amber-50 text-amber-700"
+          />
+
+          <SummaryCard
+            label="Disputed"
+            value={disputedCount}
+            style="bg-purple-50 text-purple-700"
+          />
+        </section>
+
+        {/* Heading */}
+        <section className="mb-6 flex items-end justify-between gap-4">
+          <div>
+            <p className="text-sm font-semibold text-indigo-600">
+              Attendance History
+            </p>
+
+            <h2 className="mt-1 text-2xl font-bold text-slate-950">
+              Your class attendance
+            </h2>
+          </div>
+
+          <button
+            type="button"
+            onClick={fetchAttendance}
+            className="rounded-xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+          >
+            Refresh
+          </button>
+        </section>
+
+        {/* Empty state */}
+        {attendanceSessions.length === 0 ? (
+          <section className="rounded-3xl border border-slate-200 bg-white p-12 text-center shadow-sm">
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-indigo-50 text-2xl">
+              📋
+            </div>
+
+            <h3 className="mt-5 text-xl font-bold text-slate-950">
+              No attendance records
+            </h3>
+
+            <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-500">
+              Your attendance records will appear here after
+              your classes are completed or resolved.
+            </p>
+          </section>
+        ) : (
+          <section className="space-y-5">
+            {attendanceSessions.map((session) => (
+              <article
+                key={session._id}
+                className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"
+              >
+                {/* Header */}
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <h3 className="text-xl font-bold text-slate-950">
+                      {session.tutor?.name || "Tutor"}
+                    </h3>
+
+                    <p className="mt-2 text-sm text-slate-500">
+                      {session.mode === "home"
+                        ? "Home Class"
+                        : "Online Class"}
+                    </p>
+                  </div>
+
+                  <span
+                    className={`rounded-full px-4 py-2 text-xs font-semibold ${getAttendanceStyle(
+                      session.attendanceStatus
+                    )}`}
+                  >
+                    {formatAttendance(
+                      session.attendanceStatus
+                    )}
+                  </span>
+                </div>
+
+                {/* Details */}
+                <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                  <InfoCard
+                    label="Start"
+                    value={formatDateTime(
+                      session.scheduledStart
+                    )}
+                  />
+
+                  <InfoCard
+                    label="End"
+                    value={formatDateTime(
+                      session.scheduledEnd
+                    )}
+                  />
+
+                  <InfoCard
+                    label="Duration"
+                    value={
+                      session.durationMinutes
+                        ? `${session.durationMinutes} minutes`
+                        : "Not recorded"
+                    }
+                  />
+
+                  <InfoCard
+                    label="Location"
+                    value={
+                      session.mode === "home"
+                        ? session.location?.address ||
+                          "Home"
+                        : "Online"
+                    }
+                  />
+                </div>
+
+                {/* Completed session */}
+                {session.status === "completed" && (
+                  <div className="mt-6 rounded-2xl bg-slate-50 p-5">
+                    <p className="font-semibold text-slate-900">
+                      Class completed
+                    </p>
+
+                    <p className="mt-1 text-sm text-slate-600">
+                      Attendance has been recorded as{" "}
+                      <span className="font-semibold">
+                        {formatAttendance(
+                          session.attendanceStatus
+                        )}
+                      </span>
+                      .
+                    </p>
+
+                    {session.remarks && (
+                      <p className="mt-2 text-sm text-slate-500">
+                        Admin/Tutor remarks:{" "}
+                        {session.remarks}
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {/* Disputed */}
+                {session.attendanceStatus ===
+                  "disputed" && (
+                  <div className="mt-6 rounded-2xl border border-purple-200 bg-purple-50 p-5">
+                    <p className="font-semibold text-purple-900">
+                      Attendance is under dispute
+                    </p>
+
+                    <p className="mt-1 text-sm text-purple-700">
+                      An administrator needs to review this
+                      attendance record.
+                    </p>
+
+                    {session.remarks && (
+                      <p className="mt-2 text-sm text-purple-700">
+                        Reason: {session.remarks}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </article>
+            ))}
+          </section>
+        )}
+      </main>
+    </div>
+  );
+}
+
+function SummaryCard({
+  label,
+  value,
+  style,
+}) {
+  return (
+    <div
+      className={`rounded-3xl p-6 ${style}`}
+    >
+      <p className="text-sm font-semibold">
+        {label}
+      </p>
+
+      <p className="mt-2 text-3xl font-bold">
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function InfoCard({ label, value }) {
+  return (
+    <div className="rounded-2xl bg-slate-50 p-4">
+      <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
+        {label}
+      </p>
+
+      <p className="mt-2 text-sm font-semibold text-slate-900">
+        {value}
+      </p>
+    </div>
+  );
+}
+
+export default StudentAttendance;
