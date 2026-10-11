@@ -25,6 +25,9 @@ import AdminClassSessions from "../pages/admin/AdminClassSessions";
 import TutorSearch from "../pages/public/TutorSearch";
 import TutorProfile from "../pages/public/TutorProfile";
 
+import TutorAssignments from "../pages/tutor/TutorAssignments";
+import StudentAssignments from "../pages/student/StudentAssignments";
+
 import ProtectedRoute from "./ProtectedRoute";
 
 function AppRoutes() {
@@ -85,6 +88,15 @@ function AppRoutes() {
           }
         />
 
+        <Route
+          path="/student/assignments"
+          element={
+            <ProtectedRoute allowedRoles={["student"]}>
+              <StudentAssignments />
+            </ProtectedRoute>
+          }
+        />
+
         {/* =========================
             PARENT ROUTES
         ========================= */}
@@ -116,6 +128,15 @@ function AppRoutes() {
           element={
             <ProtectedRoute allowedRoles={["tutor"]}>
               <TutorRequests />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/tutor/assignments"
+          element={
+            <ProtectedRoute allowedRoles={["tutor"]}>
+              <TutorAssignments />
             </ProtectedRoute>
           }
         />

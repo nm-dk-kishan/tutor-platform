@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import cookieParser from "cookie-parser";
+import { fileURLToPath } from "node:url";
 
 import connectDB from "./config/db.js";
 
@@ -10,8 +11,9 @@ import tutorRoutes from "./routes/tutorRoutes.js";
 import interviewRoutes from "./routes/interviewRoutes.js";
 import tutorRequestRoutes from "./routes/tutorRequestRoutes.js";
 import classSessionRoutes from "./routes/classSessionRoutes.js";
+import assignmentRoutes from "./routes/assignmentRoutes.js";  
 
-dotenv.config();
+dotenv.config({ path: fileURLToPath(new URL("../.env", import.meta.url)) });
 
 const app = express();
 
@@ -45,6 +47,11 @@ app.use("/api/tutor-requests", tutorRequestRoutes);
 app.use("/api/interviews", interviewRoutes);
 
 app.use("/api/class-sessions", classSessionRoutes);
+
+app.use(
+  "/api/assignments",
+  assignmentRoutes
+);
 
 // ================================
 // Health Check

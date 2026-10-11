@@ -1,9 +1,10 @@
 import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 import dotenv from "dotenv";
+import { fileURLToPath } from "node:url";
 import User from "../src/models/User.js";
 
-dotenv.config();
+dotenv.config({ path: fileURLToPath(new URL("../.env", import.meta.url)) });
 
 const createAdmin = async () => {
   try {

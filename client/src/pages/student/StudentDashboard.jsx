@@ -25,6 +25,13 @@ function StudentDashboard() {
           Attendance
         </Link>
 
+        <Link
+          to="/student/assignments"
+          className="rounded-xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+        >
+          Assignments
+        </Link>
+
         <button
           onClick={logout}
           className="rounded-xl bg-red-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-red-700"
@@ -32,7 +39,6 @@ function StudentDashboard() {
           Logout
         </button>
       </div>
-      
     </div>
   );
 }
