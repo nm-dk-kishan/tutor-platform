@@ -37,6 +37,33 @@ const assignmentSchema = new mongoose.Schema(
       type: Date,
     },
 
+    // Optional files uploaded by the tutor
+    // Files attached by the tutor
+    attachments: [
+      {
+        url: {
+          type: String,
+          required: true,
+        },
+        publicId: {
+          type: String,
+          required: true,
+        },
+        fileName: {
+          type: String,
+          required: true,
+        },
+        fileType: {
+          type: String,
+          default: "",
+        },
+        fileSize: {
+          type: Number,
+          default: 0,
+        },
+      },
+    ],
+
     // Assignment status
     status: {
       type: String,
@@ -52,6 +79,40 @@ const assignmentSchema = new mongoose.Schema(
         maxlength: 5000,
         default: "",
       },
+
+      // Optional file submitted by the student
+      attachments: [
+        {
+          fileName: {
+            type: String,
+            required: true,
+            trim: true,
+            maxlength: 255,
+          },
+
+          fileUrl: {
+            type: String,
+            required: true,
+          },
+
+          publicId: {
+            type: String,
+            required: true,
+          },
+
+          mimeType: {
+            type: String,
+            enum: ["application/pdf"],
+            required: true,
+          },
+
+          size: {
+            type: Number,
+            min: 1,
+            required: true,
+          },
+        },
+      ],
 
       submittedAt: {
         type: Date,
@@ -80,7 +141,7 @@ const assignmentSchema = new mongoose.Schema(
   },
   {
     timestamps: true,
-  }
+  },
 );
 
 // Quickly find assignments for a student
@@ -95,7 +156,4 @@ assignmentSchema.index({
   createdAt: -1,
 });
 
-export default mongoose.model(
-  "Assignment",
-  assignmentSchema
-);
+export default mongoose.model("Assignment", assignmentSchema);

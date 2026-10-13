@@ -4,31 +4,29 @@ import {
   createAssignment,
   getTutorAssignments,
   getStudentAssignments,
+  submitAssignment,
 } from "../controllers/assignmentController.js";
 
 import { protect } from "../middleware/authMiddleware.js";
+import { uploadAssignmentFiles } from "../middleware/assignmentUpload.js";
 
 const router = express.Router();
 
 // Tutor creates assignment
-router.post(
-  "/",
-  protect,
-  createAssignment
-);
+router.post("/", protect, uploadAssignmentFiles, createAssignment);
 
 // Tutor gets own assignments
-router.get(
-  "/tutor",
-  protect,
-  getTutorAssignments
-);
+router.get("/tutor", protect, getTutorAssignments);
 
 // Student gets own assignments
-router.get(
-  "/student",
+router.get("/student", protect, getStudentAssignments);
+
+// Student submits assignment text and optional PDF attachments
+router.post(
+  "/:assignmentId/submit",
   protect,
-  getStudentAssignments
+  uploadAssignmentFiles,
+  submitAssignment
 );
 
 export default router;
