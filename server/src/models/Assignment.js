@@ -57,6 +57,11 @@ const assignmentSchema = new mongoose.Schema(
           type: String,
           default: "",
         },
+        accessMode: {
+          type: String,
+          enum: ["public", "private"],
+          default: "public",
+        },
         fileSize: {
           type: Number,
           default: 0,
@@ -104,6 +109,11 @@ const assignmentSchema = new mongoose.Schema(
             type: String,
             enum: ["application/pdf"],
             required: true,
+          },
+          accessMode: {
+            type: String,
+            enum: ["public", "private"],
+            default: "public",
           },
 
           size: {

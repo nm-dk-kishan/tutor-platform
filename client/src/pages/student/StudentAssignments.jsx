@@ -1,646 +1,474 @@
-
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import AssignmentFileList from "../../components/common/AssignmentFileList";
+import AssignmentNotifications from "../../components/common/AssignmentNotifications";
 import api from "../../services/api";
+import {
+  getAssignmentDisplayStatus,
+  getAssignmentSummary,
+} from "../../utils/assignmentStatus";
+
+const STATUS_OPTIONS = [
+  ["all", "All statuses"],
+  ["assigned", "Assigned"],
+  ["submitted", "Submitted"],
+  ["reviewed", "Reviewed"],
+  ["overdue", "Overdue"],
+];
+
+const formatDate = (date) => {
+  if (!date) return "Not specified";
+  const parsedDate = new Date(date);
+  if (Number.isNaN(parsedDate.getTime())) return "Invalid date";
+  return parsedDate.toLocaleString("en-IN", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+};
+
+const getStatusStyle = (status) => {
+  switch (status) {
+    case "assigned":
+      return "bg-blue-100 text-blue-700";
+    case "submitted":
+      return "bg-amber-100 text-amber-700";
+    case "reviewed":
+      return "bg-green-100 text-green-700";
+    case "overdue":
+      return "bg-red-100 text-red-700";
+    default:
+      return "bg-slate-100 text-slate-700";
+  }
+};
 
 function StudentAssignments() {
-  // Store student's assignments
   const [assignments, setAssignments] = useState([]);
-
-  // Loading state
+  const [drafts, setDrafts] = useState({});
   const [loading, setLoading] = useState(true);
-
-  // Error and success messages
+  const [submittingId, setSubmittingId] = useState("");
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [searchText, setSearchText] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [now, setNow] = useState(0);
 
-  // Store each assignment's answer and selected PDFs
-  const [submissionDrafts, setSubmissionDrafts] = useState({});
-
-  // Track the assignment currently being submitted
-  const [submittingId, setSubmittingId] = useState("");
-
-  // Load assignments when the page opens
   useEffect(() => {
-    fetchAssignments();
+    let active = true;
+
+    const loadAssignments = async () => {
+      try {
+        const response = await api.get("/assignments/student");
+        if (active && response.data.success) {
+          setAssignments(response.data.assignments || []);
+        } else if (active) {
+          setError(response.data.message || "Unable to load assignments.");
+        }
+      } catch (requestError) {
+        if (active) {
+          setError(
+            requestError.response?.data?.message ||
+              "Unable to load assignments.",
+          );
+        }
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+
+    void loadAssignments();
+    return () => {
+      active = false;
+    };
   }, []);
 
-  // ==========================================
-  // GET STUDENT ASSIGNMENTS
-  // ==========================================
+  useEffect(() => {
+    const updateNow = () => setNow(Date.now());
+    updateNow();
+    const intervalId = window.setInterval(updateNow, 30_000);
+    return () => window.clearInterval(intervalId);
+  }, []);
 
-  const fetchAssignments = async () => {
-    try {
-      setLoading(true);
-      setError("");
+  const summary = useMemo(
+    () => getAssignmentSummary(assignments, now),
+    [assignments, now],
+  );
 
-      const response = await api.get("/assignments/student");
+  const filteredAssignments = useMemo(() => {
+    const query = searchText.trim().replace(/\s+/g, " ").toLowerCase();
 
-      if (response.data.success) {
-        setAssignments(response.data.assignments || []);
-      } else {
-        setError(
-          response.data.message || "Unable to load assignments."
-        );
-      }
-    } catch (error) {
-      setError(
-        error.response?.data?.message ||
-          "Unable to load assignments."
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
+    return assignments.filter((assignment) => {
+      const tutorName = assignment.tutor?.user?.name || "";
+      const matchesSearch =
+        !query ||
+        [assignment.title, assignment.description, tutorName]
+          .filter(Boolean)
+          .some((value) =>
+            value.replace(/\s+/g, " ").trim().toLowerCase().includes(query),
+          );
+      const matchesStatus =
+        statusFilter === "all" ||
+        getAssignmentDisplayStatus(assignment, now) === statusFilter;
 
-  // ==========================================
-  // UPDATE SUBMISSION DRAFT
-  // ==========================================
+      return matchesSearch && matchesStatus;
+    });
+  }, [assignments, now, searchText, statusFilter]);
 
-  const updateSubmissionDraft = (assignmentId, updates) => {
-    setSubmissionDrafts((previous) => ({
+  const updateDraft = (assignmentId, field, value) => {
+    setDrafts((previous) => ({
       ...previous,
       [assignmentId]: {
         text: previous[assignmentId]?.text || "",
         files: previous[assignmentId]?.files || [],
-        ...updates,
+        [field]: value,
       },
     }));
   };
 
-  // ==========================================
-  // SUBMIT ASSIGNMENT
-  // ==========================================
+  const selectFiles = (assignmentId, event) => {
+    const files = Array.from(event.target.files || []);
+    const invalidFile = files.find(
+      (file) =>
+        !/\.pdf$/i.test(file.name) ||
+        (file.type && file.type !== "application/pdf") ||
+        file.size > 10 * 1024 * 1024,
+    );
 
-  const handleSubmitAssignment = async (assignmentId) => {
+    if (files.length > 3 || invalidFile) {
+      setError(
+        files.length > 3
+          ? "You can upload a maximum of 3 PDF files."
+          : "Select PDF files only. Each file must be 10 MB or smaller.",
+      );
+      event.target.value = "";
+      updateDraft(assignmentId, "files", []);
+      return;
+    }
+
+    setError("");
+    updateDraft(assignmentId, "files", files);
+  };
+
+  const submitAssignment = async (assignment) => {
+    const draft = drafts[assignment._id] || { text: "", files: [] };
+    if (!draft.text.trim() && draft.files.length === 0) {
+      setError("Write an answer or attach a PDF before submitting.");
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append("text", draft.text.trim());
+    draft.files.forEach((file) => formData.append("attachments", file));
+
     try {
       setError("");
       setSuccess("");
+      setSubmittingId(assignment._id);
 
-      const draft = submissionDrafts[assignmentId] || {
-        text: "",
-        files: [],
-      };
-
-      const text = draft.text.trim();
-      const files = draft.files;
-
-      // The student must provide text or at least one PDF
-      if (!text && files.length === 0) {
-        setError(
-          "Write an answer or attach a PDF before submitting."
-        );
-        return;
-      }
-
-      setSubmittingId(assignmentId);
-
-      // Build multipart data for the answer and PDF files
-      const formData = new FormData();
-
-      formData.append("text", text);
-
-      files.forEach((file) => {
-        formData.append("attachments", file);
-      });
-
-      // Submit to the authenticated student endpoint
       const response = await api.post(
-        `/assignments/${assignmentId}/submit`,
-        formData
+        `/assignments/${assignment._id}/submit`,
+        formData,
       );
-
       if (!response.data.success) {
-        setError(
-          response.data.message || "Unable to submit assignment."
-        );
+        setError(response.data.message || "Unable to submit assignment.");
         return;
       }
 
-      // Clear the draft after successful submission
-      setSubmissionDrafts((previous) => ({
-        ...previous,
-        [assignmentId]: {
-          text: "",
-          files: [],
-        },
-      }));
-
+      setAssignments((previous) =>
+        previous.map((item) =>
+          item._id === assignment._id
+            ? { ...item, ...response.data.assignment, tutor: item.tutor }
+            : item,
+        ),
+      );
+      setDrafts((previous) => {
+        const next = { ...previous };
+        delete next[assignment._id];
+        return next;
+      });
       setSuccess("Assignment submitted successfully.");
-
-      // Refresh assignment status and saved submission
-      await fetchAssignments();
-    } catch (error) {
+    } catch (requestError) {
       setError(
-        error.response?.data?.message ||
-          "Unable to submit assignment."
+        requestError.response?.data?.message ||
+          "Unable to submit assignment.",
       );
     } finally {
       setSubmittingId("");
     }
   };
 
-  // ==========================================
-  // VALIDATE SELECTED PDF FILES
-  // ==========================================
-
-  const handleFileSelection = (assignmentId, event) => {
-    const files = Array.from(event.target.files || []);
-
-    // Allow up to three files
-    if (files.length > 3) {
-      setError("You can upload a maximum of 3 PDF files.");
-      updateSubmissionDraft(assignmentId, { files: [] });
-      event.target.value = "";
-      return;
-    }
-
-    // Validate file extension, MIME type and size
-    const invalidFile = files.find(
-      (file) =>
-        !/\.pdf$/i.test(file.name) ||
-        file.type !== "application/pdf" ||
-        file.size > 10 * 1024 * 1024
-    );
-
-    if (invalidFile) {
-      setError(
-        "Select PDF files only. Each file must be 10 MB or smaller."
-      );
-
-      updateSubmissionDraft(assignmentId, { files: [] });
-      event.target.value = "";
-      return;
-    }
-
-    setError("");
-    updateSubmissionDraft(assignmentId, { files });
+  const clearFilters = () => {
+    setSearchText("");
+    setStatusFilter("all");
   };
-
-  // ==========================================
-  // FORMAT DATE
-  // ==========================================
-
-  const formatDate = (date) => {
-    if (!date) {
-      return "No due date";
-    }
-
-    const parsedDate = new Date(date);
-
-    if (Number.isNaN(parsedDate.getTime())) {
-      return "Invalid date";
-    }
-
-    return parsedDate.toLocaleString("en-IN", {
-      dateStyle: "medium",
-      timeStyle: "short",
-    });
-  };
-
-  // ==========================================
-  // STATUS STYLE
-  // ==========================================
-
-  const getStatusStyle = (status) => {
-    switch (status) {
-      case "assigned":
-        return "bg-blue-100 text-blue-700";
-
-      case "submitted":
-        return "bg-amber-100 text-amber-700";
-
-      case "reviewed":
-        return "bg-green-100 text-green-700";
-
-      case "overdue":
-        return "bg-red-100 text-red-700";
-
-      default:
-        return "bg-slate-100 text-slate-700";
-    }
-  };
-
-  // ==========================================
-  // LOADING
-  // ==========================================
 
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-50">
         <div className="text-center">
           <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-indigo-600" />
-
-          <p className="mt-4 text-sm text-slate-600">
-            Loading assignments...
-          </p>
+          <p className="mt-4 text-sm text-slate-600">Loading assignments...</p>
         </div>
       </div>
     );
   }
 
-  // ==========================================
-  // MAIN UI
-  // ==========================================
-
   return (
     <div className="min-h-screen bg-slate-50">
-      {/* Header */}
       <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-5">
+        <div className="mx-auto flex max-w-7xl flex-col gap-4 px-6 py-5 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-sm font-semibold uppercase tracking-wide text-indigo-600">
               Student Portal
             </p>
-
             <h1 className="mt-1 text-3xl font-bold text-slate-950">
               Assignments
             </h1>
-
             <p className="mt-1 text-sm text-slate-500">
-              View assignments given by your tutors.
+              Review your work, deadlines, and tutor feedback.
             </p>
           </div>
-
-          <Link
-            to="/student"
-            className="rounded-xl border border-slate-300 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-          >
-            Back to Dashboard
-          </Link>
+          <div className="flex flex-wrap items-center gap-3">
+            <AssignmentNotifications />
+            <Link
+              to="/student"
+              className="rounded-xl border border-slate-300 bg-white px-5 py-2.5 text-center text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              Back to Dashboard
+            </Link>
+          </div>
         </div>
       </header>
 
-      {/* Main */}
       <main className="mx-auto max-w-7xl px-6 py-8">
-        {/* Error message */}
         {error && (
-          <div className="mb-6 rounded-2xl border border-red-200 bg-red-50 p-5 text-sm font-medium text-red-700">
+          <div role="alert" className="mb-6 rounded-2xl border border-red-200 bg-red-50 p-5 text-sm font-medium text-red-700">
             {error}
           </div>
         )}
-
-        {/* Success message */}
         {success && (
-          <div className="mb-6 rounded-2xl border border-green-200 bg-green-50 p-5 text-sm font-medium text-green-700">
+          <div role="status" className="mb-6 rounded-2xl border border-green-200 bg-green-50 p-5 text-sm font-medium text-green-700">
             {success}
           </div>
         )}
 
-        {/* Section heading */}
-        <section className="mb-6 flex items-end justify-between gap-4">
-          <div>
-            <p className="text-sm font-semibold text-indigo-600">
-              My Work
-            </p>
-
-            <h2 className="mt-1 text-2xl font-bold text-slate-950">
-              Your assignments
-            </h2>
-
-            <p className="mt-2 text-sm text-slate-500">
-              Complete and submit your assigned work.
-            </p>
-          </div>
-
-          <button
-            type="button"
-            onClick={fetchAssignments}
-            disabled={loading}
-            className="rounded-xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
-          >
-            Refresh
-          </button>
+        <section aria-label="Assignment performance summary" className="mb-8 grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
+          <SummaryCard label="Total" value={summary.total} />
+          <SummaryCard label="Pending" value={summary.pending} />
+          <SummaryCard label="Awaiting review" value={summary.submitted} />
+          <SummaryCard label="Reviewed" value={summary.reviewed} />
+          <SummaryCard label="Overdue" value={summary.overdue} />
+          <SummaryCard
+            label="Average marks"
+            value={summary.averageMarks === null ? "N/A" : `${summary.averageMarks} / 100`}
+          />
         </section>
 
-        {/* Empty state */}
-        {assignments.length === 0 ? (
-          <section className="rounded-3xl border border-slate-200 bg-white p-12 text-center shadow-sm">
-            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-indigo-50 text-2xl">
-              📝
+        <section className="mb-6 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="grid gap-4 md:grid-cols-[1fr_14rem_auto] md:items-end">
+            <div>
+              <label htmlFor="student-assignment-search" className="mb-2 block text-sm font-medium text-slate-700">
+                Search assignments
+              </label>
+              <input
+                id="student-assignment-search"
+                type="search"
+                value={searchText}
+                onChange={(event) => setSearchText(event.target.value)}
+                placeholder="Search title, description, or tutor"
+                className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+              />
             </div>
+            <div>
+              <label htmlFor="student-assignment-status" className="mb-2 block text-sm font-medium text-slate-700">
+                Status
+              </label>
+              <select
+                id="student-assignment-status"
+                value={statusFilter}
+                onChange={(event) => setStatusFilter(event.target.value)}
+                className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm"
+              >
+                {STATUS_OPTIONS.map(([value, label]) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
+              </select>
+            </div>
+            <button
+              type="button"
+              onClick={clearFilters}
+              disabled={!searchText && statusFilter === "all"}
+              className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Clear filters
+            </button>
+          </div>
+        </section>
 
-            <h3 className="mt-5 text-xl font-bold text-slate-950">
-              No assignments
-            </h3>
-
-            <p className="mt-2 text-sm text-slate-500">
-              Your tutor hasn't assigned any work yet.
-            </p>
-          </section>
+        {assignments.length === 0 ? (
+          <EmptyState message="Assignments from your tutors will appear here." />
+        ) : filteredAssignments.length === 0 ? (
+          <EmptyState message="No assignments match your search or status filter." onClear={clearFilters} />
         ) : (
-          <section className="space-y-5">
-            {assignments.map((assignment) => {
-              const draft = submissionDrafts[assignment._id] || {
-                text: "",
-                files: [],
-              };
-
-              const isSubmitted = Boolean(
-                assignment.submission?.submittedAt
+          <div className="space-y-5">
+            {filteredAssignments.map((assignment) => {
+              const status = getAssignmentDisplayStatus(assignment, now);
+              const submitted = Boolean(
+                assignment.submission?.submittedAt ||
+                  assignment.status === "submitted" ||
+                  status === "reviewed",
               );
+              const reviewed = status === "reviewed";
+              const tutorName = assignment.tutor?.user?.name || "Your tutor";
+              const draft = drafts[assignment._id] || { text: "", files: [] };
 
               return (
-                <article
-                  key={assignment._id}
-                  className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"
-                >
-                  {/* Assignment header */}
-                  <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <article key={assignment._id} className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div>
-                      <h3 className="text-xl font-bold text-slate-950">
-                        {assignment.title}
-                      </h3>
-
-                      <p className="mt-2 text-sm text-slate-500">
-                        Tutor:{" "}
-                        <span className="font-semibold text-slate-700">
-                          {assignment.tutor?.user?.name || "Tutor"}
-                        </span>
-                      </p>
+                      <h2 className="text-xl font-bold text-slate-950">{assignment.title}</h2>
+                      <p className="mt-1 text-sm text-slate-500">Tutor: {tutorName}</p>
                     </div>
-
-                    <span
-                      className={`rounded-full px-4 py-2 text-xs font-semibold ${getStatusStyle(
-                        assignment.status
-                      )}`}
-                    >
-                      {assignment.status
-                        ?.replaceAll("_", " ")
-                        .replace(/\b\w/g, (letter) =>
-                          letter.toUpperCase()
-                        )}
+                    <span className={`w-fit rounded-full px-4 py-2 text-xs font-semibold ${getStatusStyle(status)}`}>
+                      {status[0].toUpperCase() + status.slice(1)}
                     </span>
                   </div>
 
-                  {/* Assignment instructions */}
-                  <div className="mt-6 rounded-2xl bg-slate-50 p-5">
-                    <p className="text-sm font-semibold text-slate-800">
-                      Instructions
-                    </p>
+                  <p className="mt-5 whitespace-pre-wrap rounded-2xl bg-slate-50 p-5 text-sm leading-6 text-slate-700">
+                    {assignment.description}
+                  </p>
 
-                    <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">
-                      {assignment.description}
-                    </p>
+                  <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                    <SummaryCard label="Due date" value={formatDate(assignment.dueDate)} />
+                    <SummaryCard label="Created" value={formatDate(assignment.createdAt)} />
                   </div>
 
-                  {/* PDFs attached by tutor */}
-                  {Array.isArray(assignment.attachments) &&
-                    assignment.attachments.length > 0 && (
-                      <div className="mt-5 rounded-2xl border border-slate-200 bg-white p-5">
-                        <p className="mb-3 text-sm font-semibold text-slate-800">
-                          Files from your tutor
-                        </p>
+                  <AssignmentFileList
+                    title="Tutor-provided PDFs"
+                    files={assignment.attachments}
+                    assignmentId={assignment._id}
+                    fileKind="assignment"
+                  />
 
-                        <ul className="space-y-2">
-                          {assignment.attachments.map((file, index) => (
-                            <li
-                              key={file.publicId || file.url || index}
-                            >
-                              {file.url ? (
-                                <a
-                                  href={file.url}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="text-sm font-medium text-indigo-600 hover:text-indigo-800 hover:underline"
-                                >
-                                  📄{" "}
-                                  {file.fileName ||
-                                    `Assignment PDF ${index + 1}`}
-                                </a>
-                              ) : (
-                                <span className="text-sm text-slate-500">
-                                  {file.fileName ||
-                                    `Assignment PDF ${index + 1}`}{" "}
-                                  (link unavailable)
-                                </span>
-                              )}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-
-                  {/* Assignment dates */}
-                  <div className="mt-5 grid gap-4 sm:grid-cols-2">
-                    <InfoCard
-                      label="Due Date"
-                      value={formatDate(assignment.dueDate)}
-                    />
-
-                    <InfoCard
-                      label="Assigned On"
-                      value={formatDate(assignment.createdAt)}
-                    />
-                  </div>
-
-                  {/* Existing submission or submission form */}
-                  {isSubmitted ? (
-                    <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-5">
-                      <p className="font-semibold text-amber-900">
-                        Assignment submitted
+                  {status === "overdue" && !submitted && (
+                    <div role="alert" className="mt-5 rounded-2xl border border-red-300 bg-red-50 p-5 text-red-900">
+                      <h3 className="font-bold">Deadline Passed</h3>
+                      <p className="mt-1 text-sm">
+                        The submission deadline for this assignment has passed. You can no longer submit this assignment.
                       </p>
-
-                      <p className="mt-2 text-sm text-amber-700">
-                        Submitted on{" "}
-                        {formatDate(
-                          assignment.submission.submittedAt
-                        )}
-                      </p>
-
-                      {/* Submitted text */}
-                      {assignment.submission.text && (
-                        <div className="mt-3 rounded-xl bg-white p-4">
-                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-                            Your submission
-                          </p>
-
-                          <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">
-                            {assignment.submission.text}
-                          </p>
-                        </div>
-                      )}
-
-                      {/* Submitted PDFs */}
-                      {assignment.submission.attachments?.length > 0 && (
-                        <div className="mt-3 rounded-xl bg-white p-4">
-                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-                            Your submitted files
-                          </p>
-
-                          <ul className="mt-2 space-y-2">
-                            {assignment.submission.attachments.map(
-                              (file, index) => (
-                                <li
-                                  key={
-                                    file.publicId ||
-                                    file.fileUrl ||
-                                    index
-                                  }
-                                >
-                                  {file.fileUrl ? (
-                                    <a
-                                      href={file.fileUrl}
-                                      target="_blank"
-                                      rel="noreferrer"
-                                      className="text-sm font-medium text-indigo-600 hover:underline"
-                                    >
-                                      📄{" "}
-                                      {file.fileName ||
-                                        `Submission PDF ${index + 1}`}
-                                    </a>
-                                  ) : (
-                                    <span className="text-sm text-slate-500">
-                                      {file.fileName ||
-                                        `Submission PDF ${index + 1}`}
-                                    </span>
-                                  )}
-                                </li>
-                              )
-                            )}
-                          </ul>
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="mt-5 rounded-2xl border border-indigo-100 bg-indigo-50 p-5">
-                      <p className="font-semibold text-indigo-900">
-                        Submit your assignment
-                      </p>
-
-                      <p className="mt-1 text-sm text-indigo-700">
-                        Write your answer or attach your completed work as
-                        a PDF.
-                      </p>
-
-                      {/* Written answer */}
-                      <label
-                        htmlFor={`answer-${assignment._id}`}
-                        className="mt-4 block text-sm font-medium text-slate-700"
-                      >
-                        Your Answer
-                      </label>
-
-                      <textarea
-                        id={`answer-${assignment._id}`}
-                        rows={4}
-                        maxLength={5000}
-                        value={draft.text}
-                        onChange={(event) =>
-                          updateSubmissionDraft(assignment._id, {
-                            text: event.target.value,
-                          })
-                        }
-                        placeholder="Write your answer here..."
-                        className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
-                      />
-
-                      <p className="mt-1 text-right text-xs text-slate-500">
-                        {draft.text.length}/5000 characters
-                      </p>
-
-                      {/* Select submission PDFs */}
-                      <label
-                        htmlFor={`files-${assignment._id}`}
-                        className="mt-4 block text-sm font-medium text-slate-700"
-                      >
-                        Attach Completed Work (PDF)
-                      </label>
-
-                      <input
-                        id={`files-${assignment._id}`}
-                        type="file"
-                        accept=".pdf,application/pdf"
-                        multiple
-                        onChange={(event) =>
-                          handleFileSelection(
-                            assignment._id,
-                            event
-                          )
-                        }
-                        className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm"
-                      />
-
-                      <p className="mt-2 text-xs text-slate-500">
-                        PDF only · Maximum 3 files · 10 MB per file
-                      </p>
-
-                      {/* Selected PDF names */}
-                      {draft.files.length > 0 && (
-                        <ul className="mt-3 space-y-2">
-                          {draft.files.map((file, index) => (
-                            <li
-                              key={`${file.name}-${index}`}
-                              className="text-sm text-slate-700"
-                            >
-                              📄 {file.name}
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-
-                      {/* Submit button */}
-                      <div className="mt-4 flex justify-end">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            handleSubmitAssignment(assignment._id)
-                          }
-                          disabled={
-                            submittingId === assignment._id
-                          }
-                          className="rounded-xl bg-indigo-600 px-6 py-3 text-sm font-semibold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          {submittingId === assignment._id
-                            ? "Submitting..."
-                            : "Submit Assignment"}
-                        </button>
-                      </div>
+                      <p className="mt-2 text-sm font-semibold">Deadline: {formatDate(assignment.dueDate)}</p>
                     </div>
                   )}
 
-                  {/* Tutor review */}
-                  {assignment.review?.reviewedAt && (
-                    <div className="mt-5 rounded-2xl border border-green-200 bg-green-50 p-5">
-                      <p className="font-semibold text-green-900">
-                        Tutor Feedback
+                  {submitted && (
+                    <section className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-5">
+                      <h3 className="font-semibold text-amber-950">Your submission</h3>
+                      <p className="mt-2 text-xs text-amber-800">
+                        Submitted: {formatDate(assignment.submission.submittedAt)}
                       </p>
-
-                      <p className="mt-2 text-sm text-green-700">
-                        Marks: {assignment.review.marks ?? "N/A"}
+                      <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-6 text-slate-700">
+                        {assignment.submission.text || "No written answer was provided."}
                       </p>
+                      <AssignmentFileList
+                        title="Your submitted PDFs"
+                        files={assignment.submission.attachments}
+                        assignmentId={assignment._id}
+                        fileKind="submission"
+                      />
+                    </section>
+                  )}
 
-                      {assignment.review.feedback && (
-                        <p className="mt-2 whitespace-pre-wrap text-sm text-green-700">
-                          Feedback: {assignment.review.feedback}
+                  {!submitted && status !== "overdue" && (
+                    <section className="mt-5 rounded-2xl border border-indigo-100 bg-indigo-50 p-5">
+                      <h3 className="font-semibold text-indigo-950">Submit your assignment</h3>
+                      <label htmlFor={`submission-text-${assignment._id}`} className="mb-2 mt-4 block text-sm font-medium text-slate-700">
+                        Written answer
+                      </label>
+                      <textarea
+                        id={`submission-text-${assignment._id}`}
+                        rows={5}
+                        maxLength={5000}
+                        value={draft.text}
+                        onChange={(event) => updateDraft(assignment._id, "text", event.target.value)}
+                        placeholder="Write your answer..."
+                        className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm"
+                      />
+                      <label htmlFor={`submission-files-${assignment._id}`} className="mb-2 mt-4 block text-sm font-medium text-slate-700">
+                        Attach PDF files (optional)
+                      </label>
+                      <input
+                        id={`submission-files-${assignment._id}`}
+                        type="file"
+                        accept=".pdf,application/pdf"
+                        multiple
+                        onChange={(event) => selectFiles(assignment._id, event)}
+                        className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm"
+                      />
+                      <p className="mt-2 text-xs text-slate-500">PDF only · Maximum 3 files · 10 MB per file</p>
+                      {draft.files.length > 0 && (
+                        <ul className="mt-2 list-inside list-disc text-sm text-slate-600">
+                          {draft.files.map((file) => <li key={`${file.name}-${file.size}`}>{file.name}</li>)}
+                        </ul>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => void submitAssignment(assignment)}
+                        disabled={submittingId === assignment._id}
+                        className="mt-4 rounded-xl bg-indigo-600 px-6 py-3 text-sm font-semibold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {submittingId === assignment._id ? "Submitting..." : "Submit Assignment"}
+                      </button>
+                    </section>
+                  )}
+
+                  {reviewed && (
+                    <section className="mt-5 rounded-2xl border border-green-200 bg-green-50 p-5">
+                      <h3 className="font-semibold text-green-950">Assignment reviewed</h3>
+                      <p className="mt-2 text-lg font-bold text-green-900">
+                        Marks: {typeof assignment.review?.marks === "number" ? assignment.review.marks : "N/A"} / 100
+                      </p>
+                      {assignment.review?.feedback?.trim() && (
+                        <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-green-900">
+                          {assignment.review.feedback}
                         </p>
                       )}
-                    </div>
+                      <p className="mt-3 text-xs text-green-800">
+                        Reviewed: {formatDate(assignment.review?.reviewedAt)}
+                      </p>
+                    </section>
                   )}
                 </article>
               );
             })}
-          </section>
+          </div>
         )}
       </main>
     </div>
   );
 }
 
-// ==========================================
-// REUSABLE INFO CARD
-// ==========================================
-
-function InfoCard({ label, value }) {
+function SummaryCard({ label, value }) {
   return (
-    <div className="rounded-2xl bg-slate-50 p-4">
-      <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
-        {label}
-      </p>
+    <div className="rounded-2xl border border-slate-200 bg-white p-4">
+      <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</p>
+      <p className="mt-2 break-words text-lg font-semibold text-slate-900">{value}</p>
+    </div>
+  );
+}
 
-      <p className="mt-2 text-sm font-semibold text-slate-900">
-        {value}
-      </p>
+function EmptyState({ message, onClear }) {
+  return (
+    <div className="rounded-3xl border border-slate-200 bg-white p-12 text-center shadow-sm">
+      <h2 className="text-xl font-bold text-slate-950">No assignments found</h2>
+      <p className="mt-2 text-sm text-slate-500">{message}</p>
+      {onClear && (
+        <button
+          type="button"
+          onClick={onClear}
+          className="mt-4 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white"
+        >
+          Clear search and filters
+        </button>
+      )}
     </div>
   );
 }

@@ -12,6 +12,7 @@ import interviewRoutes from "./routes/interviewRoutes.js";
 import tutorRequestRoutes from "./routes/tutorRequestRoutes.js";
 import classSessionRoutes from "./routes/classSessionRoutes.js";
 import assignmentRoutes from "./routes/assignmentRoutes.js";  
+import notificationRoutes from "./routes/notificationRoutes.js";
 
 dotenv.config({ path: fileURLToPath(new URL("../.env", import.meta.url)) });
 
@@ -52,6 +53,7 @@ app.use(
   "/api/assignments",
   assignmentRoutes
 );
+app.use("/api/notifications", notificationRoutes);
 
 // ================================
 // Health Check

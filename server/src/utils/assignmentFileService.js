@@ -24,6 +24,7 @@ export const uploadAssignmentPdf = (file, folder = "assignments") => {
     const uploadStream = cloudinary.uploader.upload_stream(
       {
         resource_type: "raw",
+        type: "private",
         public_id: publicId,
         overwrite: false,
       },
@@ -45,6 +46,7 @@ export const uploadAssignmentPdf = (file, folder = "assignments") => {
           fileName: path.basename(file.originalname),
           fileType: "application/pdf",
           fileSize: result.bytes ?? file.size,
+          accessMode: "private",
         });
       }
     );
@@ -56,13 +58,14 @@ export const uploadAssignmentPdf = (file, folder = "assignments") => {
 
 // Delete a previously uploaded raw PDF.
 // Useful if saving its database record fails.
-export const deleteAssignmentPdf = async (publicId) => {
+export const deleteAssignmentPdf = async (publicId, accessMode = "public") => {
   if (!publicId) {
     return;
   }
 
   const result = await cloudinary.uploader.destroy(publicId, {
     resource_type: "raw",
+    type: accessMode,
     invalidate: true,
   });
 
